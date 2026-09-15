@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: c5-unschedulable
+  namespace: demo
+spec:
+  nodeSelector:
+    verdict.test/nonexistent: "true"
+  containers:
+    - name: app
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 3600"]
+      resources:
+        requests: { cpu: "1", memory: 1Gi }

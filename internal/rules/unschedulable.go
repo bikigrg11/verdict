@@ -51,12 +51,12 @@ func tolerates(p corev1.Pod, t corev1.Taint) bool {
 func whyNotNode(p corev1.Pod, n corev1.Node, usedCPU, usedMem resource.Quantity) string {
 	for k, v := range p.Spec.NodeSelector {
 		if n.Labels[k] != v {
-			return fmt.Sprintf("lacks label %s=%s", k, v)
+			return fmt.Sprintf("no matching label %s=%s", k, v)
 		}
 	}
 	for _, t := range n.Spec.Taints {
 		if t.Effect == corev1.TaintEffectNoSchedule && !tolerates(p, t) {
-			return fmt.Sprintf("taint %s=%s:%s is not tolerated", t.Key, t.Value, t.Effect)
+			return fmt.Sprintf("untolerated taint %s=%s:%s", t.Key, t.Value, t.Effect)
 		}
 	}
 
@@ -138,7 +138,7 @@ func (u Unschedulable) Verify(_ context.Context, s *kube.Snapshot, _ kube.LogFet
 
 	parts := make([]string, 0, len(reasons))
 	for why, nodes := range reasons {
-		parts = append(parts, fmt.Sprintf("%d node(s) %s", len(nodes), why))
+		parts = append(parts, fmt.Sprintf("%d node(s): %s", len(nodes), why))
 	}
 	sort.Strings(parts)
 
