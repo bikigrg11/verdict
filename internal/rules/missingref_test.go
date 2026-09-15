@@ -89,3 +89,64 @@ func TestMissingRefGroupsPodsSharingOneMissingConfigMap(t *testing.T) {
 		t.Errorf("got blast radius %d, want 3", findings[0].BlastRadius)
 	}
 }
+
+// A reference marked optional:true is absent on purpose. Kubernetes itself ships
+// these — k3s CoreDNS mounts an optional coredns-custom ConfigMap — so flagging
+// them is a false positive, caught against a real cluster on the first run.
+func TestMissingRefIgnoresOptionalReferences(t *testing.T) {
+	yes := true
+
+	optionalVolume := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "coredns-1", Namespace: "kube-system"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "coredns"}},
+			Volumes: []corev1.Volume{{
+				Name: "custom-config-volume",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "coredns-custom"},
+						Optional:             &yes,
+					},
+				},
+			}},
+		},
+	}
+
+	optionalEnvFrom := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-1", Namespace: "demo"},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "api",
+				EnvFrom: []corev1.EnvFromSource{{
+					ConfigMapRef: &corev1.ConfigMapEnvSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "optional-config"},
+						Optional:             &yes,
+					},
+				}},
+				Env: []corev1.EnvVar{{
+					Name: "TOKEN",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{Name: "optional-secret"},
+							Key:                  "token",
+							Optional:             &yes,
+						},
+					},
+				}},
+			}},
+		},
+	}
+
+	snap := &kube.Snapshot{Pods: []corev1.Pod{optionalVolume, optionalEnvFrom}}
+
+	findings, err := Run(context.Background(), snap, nil, []Rule{MissingRef{}})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(findings) != 0 {
+		for _, f := range findings {
+			t.Errorf("false positive: %s — %s", f.Title, f.Explanation)
+		}
+		t.Fatalf("got %d findings, want 0 — every reference is optional", len(findings))
+	}
+}

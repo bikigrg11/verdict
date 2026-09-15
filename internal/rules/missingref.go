@@ -26,11 +26,21 @@ type ref struct {
 	name      string
 }
 
-// refsIn returns every ConfigMap/Secret a pod depends on.
+// isOptional reports whether a reference is explicitly marked optional.
+//
+// An optional reference that is absent is absent on purpose — Kubernetes itself
+// ships these (k3s CoreDNS mounts an optional coredns-custom ConfigMap), so
+// treating one as a problem is a false positive.
+func isOptional(optional *bool) bool {
+	return optional != nil && *optional
+}
+
+// refsIn returns every required ConfigMap/Secret a pod depends on.
+// Optional references are skipped: their absence is not a problem.
 func refsIn(p corev1.Pod) []ref {
 	var out []ref
-	add := func(kind, name string) {
-		if name != "" {
+	add := func(kind, name string, optional *bool) {
+		if name != "" && !isOptional(optional) {
 			out = append(out, ref{kind: kind, namespace: p.Namespace, name: name})
 		}
 	}
@@ -39,30 +49,30 @@ func refsIn(p corev1.Pod) []ref {
 	for _, c := range all {
 		for _, ef := range c.EnvFrom {
 			if ef.ConfigMapRef != nil {
-				add("ConfigMap", ef.ConfigMapRef.Name)
+				add("ConfigMap", ef.ConfigMapRef.Name, ef.ConfigMapRef.Optional)
 			}
 			if ef.SecretRef != nil {
-				add("Secret", ef.SecretRef.Name)
+				add("Secret", ef.SecretRef.Name, ef.SecretRef.Optional)
 			}
 		}
 		for _, e := range c.Env {
 			if e.ValueFrom == nil {
 				continue
 			}
-			if e.ValueFrom.ConfigMapKeyRef != nil {
-				add("ConfigMap", e.ValueFrom.ConfigMapKeyRef.Name)
+			if r := e.ValueFrom.ConfigMapKeyRef; r != nil {
+				add("ConfigMap", r.Name, r.Optional)
 			}
-			if e.ValueFrom.SecretKeyRef != nil {
-				add("Secret", e.ValueFrom.SecretKeyRef.Name)
+			if r := e.ValueFrom.SecretKeyRef; r != nil {
+				add("Secret", r.Name, r.Optional)
 			}
 		}
 	}
 	for _, v := range p.Spec.Volumes {
 		if v.ConfigMap != nil {
-			add("ConfigMap", v.ConfigMap.Name)
+			add("ConfigMap", v.ConfigMap.Name, v.ConfigMap.Optional)
 		}
 		if v.Secret != nil {
-			add("Secret", v.Secret.SecretName)
+			add("Secret", v.Secret.SecretName, v.Secret.Optional)
 		}
 	}
 	return out
